@@ -96,17 +96,6 @@ if args.do_train:
 
     trainer.train()
 
-if args.do_eval_after_train:
-    evaluation_dirs = list(sorted([
-                checkpoint_dir
-                for checkpoint_dir in os.listdir(args.output_dir)
-                if checkpoint_dir.startswith('checkpoint-')
-            ], key=lambda x: int(x[len('checkpoint-'):])))
-    
-    model = GPT2ForSequenceClassification.from_pretrained(evaluation_dirs[-1], 
-                                                          num_labels=3, 
-                                                          pad_token_id=0)
-
 if args.do_predict:
     if args.do_eval_after_train:
         evaluation_dirs = list(sorted([
