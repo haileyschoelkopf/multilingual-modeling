@@ -103,7 +103,7 @@ if args.do_predict:
                     for checkpoint_dir in os.listdir(args.output_dir)
                     if checkpoint_dir.startswith('checkpoint-')
                 ], key=lambda x: int(x[len('checkpoint-'):])))
-        args.pretrained_model = evaluation_dirs[-1]
+        args.pretrained_model = f"{args.output_dir}/{evaluation_dirs[-1]}"
         logging.info(f"Loading trained model from {evaluation_dirs[-1]}")
                                  
     model = GPT2ForSequenceClassification.from_pretrained(args.pretrained_model, 
