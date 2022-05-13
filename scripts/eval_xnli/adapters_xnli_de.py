@@ -37,7 +37,7 @@ parser.add_argument("--use_partial_data", default=False, action="store_true")
 parser.add_argument("--zero_shot", default=False, action="store_true")
 
 finetune_strategies = ["whole", "lang_adapters", "task_adapters"]
-parser.add_argument("--madx_lang_adapter", required=True)
+parser.add_argument("--madx_lang_adapter")
 parser.add_argument("--adapter_lang_name", required=True)
 parser.add_argument("--finetune_strategies", choices=finetune_strategies, required=True)
 
@@ -154,16 +154,19 @@ def load_model(args, inference=False):
         # change the embedding layer of the original big science model
         # by loading the adapters (which has saved lm_head)
         causal_lm_model.resize_token_embeddings(len(tokenizer))
-        causal_lm_model.load_adapter(args.madx_lang_adapter, config="pfeiffer+inv")                                    
+        if args.madx_lang_adapter:
+            causal_lm_model.load_adapter(args.madx_lang_adapter, config="pfeiffer+inv")                                    
         
         # model has original bigscience embedding so replace it.
         model.resize_token_embeddings(len(tokenizer))
         model._modules['transformer']._modules['wte'] = causal_lm_model._modules['transformer']._modules['wte']
 
     if not inference:
-        adapter_name = model.load_adapter(args.madx_lang_adapter,
-                                        config="pfeiffer+inv",
-                                        load_as=args.adapter_lang_name)
+        if not args.zero_shot:
+            if args.madx_lang_adapter:
+                adapter_name = model.load_adapter(args.madx_lang_adapter,
+                                                config="pfeiffer+inv",
+                                                load_as=args.adapter_lang_name)
         if args.finetune_strategies == "whole":
             model.set_active_adapters(adapter_name)
         elif args.finetune_strategies == "lang_adapters":
@@ -183,15 +186,23 @@ def load_model(args, inference=False):
         print(model)
     else:
         print("🔥 ==================== Inference: ==================== 🔥")
-        assert args.pretrained_adapters_dir
         if args.finetune_strategies == "lang_adapters":
+            assert args.pretrained_adapters_dir 
             adapter_name = model.load_adapter(f"{args.pretrained_adapters_dir}/{args.adapter_lang_name}")
             model.set_active_adapters(adapter_name)
         elif args.finetune_strategies == "task_adapters":
-            adapter_name = model.load_adapter(f"{args.pretrained_adapters_dir}/{args.adapter_lang_name}")
-            model.set_active_adapters(adapter_name)
-            adapter_name = model.load_adapter(f"{args.pretrained_adapters_dir}/xnli-task-adapter")
-            model.set_active_adapters(adapter_name)
+            if args.madx_lang_adapter:
+                assert args.pretrained_adapters_dir 
+                adapter_name = model.load_adapter(args.madx_lang_adapter)
+                model.set_active_adapters(adapter_name)
+                adapter_name = model.load_adapter(f"{args.pretrained_adapters_dir}/xnli-task-adapter")
+                model.set_active_adapters(adapter_name)
+            else:
+                # adapter_name = model.load_adapter("/users/zyong2/data/zyong2/bigscience/data/processed/013/xnli_de_de_100K_adpt_16_0shot/checkpoint-24544/xnli-task-adapter")
+
+                # for TGT -> TGT supervised finetuning setting, change adapter_name
+                adapter_name = model.load_adapter("/users/zyong2/data/zyong2/bigscience/data/processed/exp-013/task_xnli_de_ft_100000_ori/checkpoint-24544/xnli-task-adapter")
+                model.set_active_adapters(adapter_name)
         print(model)
 
     return model
@@ -216,8 +227,9 @@ if args.do_predict:
                     for checkpoint_dir in os.listdir(args.output_dir)
                     if checkpoint_dir.startswith('checkpoint-')
                 ], key=lambda x: int(x[len('checkpoint-'):])))
-        args.pretrained_adapters_dir = f"{args.output_dir}/{evaluation_dirs[-1]}"
-        logger.info(f"[Evaluation] Loading trained model from {evaluation_dirs[-1]}")
+        if args.madx_lang_adapter:
+            args.pretrained_adapters_dir = f"{args.output_dir}/{evaluation_dirs[-1]}"
+            logger.info(f"[Evaluation] Loading trained model from {evaluation_dirs[-1]}")
 
     model = load_model(args, inference=True)
     training_args.report_to = list()
