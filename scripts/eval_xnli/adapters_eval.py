@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("output_dir")
 parser.add_argument("--lang", type=str, default="german") #xlsum requires a language name, not language code
 
-tasks = ["xnli", "xlsum"]
+tasks = ["xnli", "xlsum","wikiann"]
 parser.add_argument("--dataset", choices=tasks, required=True)
 
 parser.add_argument("--cache_dir")
@@ -50,9 +50,9 @@ parser.add_argument("--finetune_strategies", choices=finetune_strategies, requir
 parser.add_argument("--deepspeed", required=False)
 
 # mapping of tasks to model/trainer classes
-model_class_mapping = {"xnli": GPT2ForSequenceClassification, "xlsum": GPT2LMHeadModel}
-trainer_class_mapping = {"xnli": AdapterTrainer, "xlsum": Seq2SeqAdapterTrainer}
-trainer_args_mapping = {"xnli": TrainingArguments, "xlsum": Seq2SeqTrainingArguments}
+model_class_mapping = {"xnli": GPT2ForSequenceClassification, "xlsum": GPT2LMHeadModel,"wikiann":GPT2LMHeadModel}
+trainer_class_mapping = {"xnli": AdapterTrainer, "xlsum": Seq2SeqAdapterTrainer,"wikiann": Seq2SeqAdapterTrainer}
+trainer_args_mapping = {"xnli": TrainingArguments, "xlsum": Seq2SeqTrainingArguments,"wikiann": Seq2SeqTrainingArguments}
 
 
 args = parser.parse_args()
@@ -66,7 +66,8 @@ if args.dataset == "xnli":
     optional_model_kwargs = {"num_labels": 3}
 elif args.dataset == "xlsum":
     optional_trainer_args = {"generation_max_length": 128, "predict_with_generate":True}
-
+elif args.dataset = "wikiann":
+    optional_trainer_args = {"generation_max_length":128, "predict_with_generate":True}
 
 if args.local_rank:
     torch.cuda.set_device(args.local_rank)
@@ -120,6 +121,15 @@ elif args.dataset == "xlsum":
 
         return inputs
 
+elif args.dataset == "wikiann":
+    def tokenize_function(example):
+        sent = ' '.join(example["tokens"])
+        inputs = tokenizer(f'Given the following sentence: {sent} what is the crosponding \
+        named entity spans if any?', max_length=128, padding="max_length", truncation=True)
+        inputs["labels"] = ' '.join(example["spans"])
+        return inputs
+
+
 if args.zero_shot:
     en_tokenizer = AutoTokenizer.from_pretrained(args.original_model, cache_dir=args.cache_dir, revision=args.revision)
     en_tokenizer.pad_token = en_tokenizer.eos_token
@@ -139,6 +149,13 @@ if args.zero_shot:
 
             return inputs
 
+elif args.dataset == "wikiann":
+    def tokenize_function(example):
+        sent = ' '.join(example["tokens"])
+        inputs = tokenizer(f'Given the following sentence: {sent} what is the crosponding \
+        named entity spans if any?', max_length=128, padding="max_length", truncation=True)
+        inputs["labels"] = ' '.join(example["spans"])
+        return inputs
 
 
 if args.zero_shot:
@@ -295,7 +312,7 @@ if args.do_train:
 
     
     # only use seq2seq collator if doing seq2seq task
-    if args.dataset == "xlsum":
+    if args.dataset == "xlsum" or args.dataset == "wikiann":
         data_collator = DataCollatorForSeq2Seq(
             tokenizer,
             model=model,
@@ -310,7 +327,7 @@ if args.do_train:
         eval_dataset=small_val_dataset if args.use_partial_data else full_val_dataset,
         compute_metrics=compute_metrics,
         # args for xlsum only
-        **{"data_collator": data_collator} if args.dataset == "xlsum" else {},
+        **{"data_collator": data_collator} if args.dataset == "xlsum" or args.dataset== "wikiann" else {},
     )
 
     trainer.train()
@@ -334,7 +351,7 @@ if args.do_predict:
     model = load_model(args, inference=True)
     training_args.report_to = list()
 
-    if args.dataset == "xlsum":
+    if args.dataset == "xlsum" or args.dataset == "wikiann":
         data_collator = DataCollatorForSeq2Seq(
             tokenizer,
             model=model,
@@ -348,7 +365,7 @@ if args.do_predict:
         eval_dataset=small_test_dataset if args.use_partial_data else full_test_dataset,
         compute_metrics=compute_metrics,
         # args for xlsum only
-        **{"data_collator": data_collator} if args.dataset == "xlsum" else {}
+        **{"data_collator": data_collator} if args.dataset == "xlsum" or args.dataset="wikiann" else {}
 
     )
 
